@@ -1,173 +1,236 @@
-# 🤖 AI Video Clipper Bot
+# AI Video Clipper Bot
 
-Bot Telegram otomatis yang mengubah video YouTube menjadi clip viral 9:16 dengan subtitle burn-in, menggunakan arsitektur 4 Agent AI.
+A Telegram bot that automatically converts YouTube videos into viral-ready 9:16 portrait clips with burned-in subtitles. Built on a modular 4-agent architecture with retry logic, circuit breakers, and a feedback-driven improvement loop.
 
-## 🏗️ Arsitektur 4 Agent
+## Architecture
+
+The system is structured as a sequential pipeline of four specialized agents, each with a single responsibility and structured data interfaces between stages.
 
 ```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  Agent 1        │────▶│  Agent 2        │────▶│  Agent 3        │────▶│  Agent 4        │
-│  Media Ingestion│     │  Viral Spotter  │     │  Transcriber    │     │  Video Editor   │
-│  (yt-dlp)       │     │  (Gemini 2.0)   │     │  (Groq Whisper) │     │  (FFmpeg)       │
-└─────────────────┘     └─────────────────┘     └─────────────────┘     └─────────────────┘
+User (Telegram) -> Agent 1 -> Agent 2 -> Agent 3 -> Agent 4 -> User
 ```
 
-| Agent | Peran | Tech Stack |
-|-------|-------|-----------|
-| **1. Media Ingestion** | Download & validasi YouTube | yt-dlp, URL validation |
-| **2. Content Analyst** | Deteksi momen viral | Gemini 2.0 Flash, Multimodal |
-| **3. Transcriber** | Speech-to-text + subtitle | Groq Whisper, ASS Builder |
-| **4. Video Editor** | Cut, crop 9:16, burn subtitle | FFmpeg, libx264 |
+| Agent | Role | Technology |
+|-------|------|------------|
+| Media Ingestion | Download and validate YouTube content | yt-dlp |
+| Content Analyst | Identify viral segments via multimodal reasoning | Google Gemini 2.0 Flash |
+| Transcriber | Speech-to-text with word-level timing | Groq Whisper |
+| Video Editor | Cut, crop 9:16, burn subtitles | FFmpeg |
 
-## ⚡ Fitur Improvement
+## Features
 
-- **🔄 Retry & Circuit Breaker** — Auto-retry Gemini API dengan fallback heuristic
-- **📊 Job Queue** — Semaphore-based concurrent processing (VPS-safe)
-- **👍 Feedback Loop** — SQLite database menyimpan rating user untuk improve AI
-- **💾 Metadata Cache** — Hindari fetch berulang untuk URL yang sama
-- **🎨 ASS Subtitle Styling** — Word-highlight ala CapCut dengan karaoke effect
-- **⚙️ Dual-Mode Config** — LOCAL (Drive D:) vs VPS (/tmp/) via `.env`
+- **Retry and Circuit Breaker** on the Gemini API. Falls back to a heuristic middle-segment selector if the AI service is unavailable.
+- **Concurrent Job Queue** using asyncio semaphores to limit simultaneous FFmpeg renders and prevent resource exhaustion.
+- **User Feedback Loop** via inline Telegram buttons. Ratings are stored in SQLite for future prompt fine-tuning.
+- **Metadata Caching** to avoid repeated fetches for the same YouTube URL.
+- **Dynamic ASS Subtitles** with karaoke-style word highlighting.
+- **Dual-Mode Configuration** switchable via a single environment variable for local development vs. VPS deployment.
 
-## 🚀 Setup
+## Project Structure
 
-### 1. Install Dependencies
+```
+telegram-video-bot/
+├── .env                    # API keys and mode switch
+├── .env.example            # Template
+├── requirements.txt        # Python dependencies
+├── main.py                 # Bot entry point, job queue, and feedback handlers
+│
+├── models/                 # Pydantic schemas for structured agent communication
+│   ├── config.py           # AppConfig, AppMode (LOCAL / VPS)
+│   ├── analysis.py         # AnalysisResult, TimestampSegment, FeedbackEntry
+│   └── subtitle.py         # TranscriptionResult, WordTiming, SubtitleStyle
+│
+├── services/               # The four agent implementations
+│   ├── downloader.py       # Agent 1: yt-dlp download with metadata cache
+│   ├── ai_analyzer.py      # Agent 2: Gemini analysis with circuit breaker
+│   ├── transcriber.py      # Agent 3: Groq Whisper transcription
+│   └── video_editor.py     # Agent 4: FFmpeg pipeline
+│
+├── utils/                  # Shared utilities
+│   ├── validators.py       # URL validation, duration checks, filename sanitization
+│   ├── file_manager.py     # Temp directory lifecycle and disk space monitoring
+│   └── ass_builder.py      # ASS subtitle generator with word-highlight styling
+│
+└── temp/                   # Auto-created by config.py
+```
+
+## Requirements
+
+- Python 3.10+
+- FFmpeg
+- Telegram Bot Token (from BotFather)
+- Google Gemini API Key
+- Groq API Key
+
+## Installation
+
+### 1. Clone the repository
 
 ```bash
-pip install -r requirements.txt
+git clone https://github.com/faqihrayhan/telegram-video-bot.git
+cd telegram-video-bot
 ```
 
-Pastikan **FFmpeg** sudah terinstall:
+### 2. Install FFmpeg
+
 ```bash
-# Ubuntu/Debian
-sudo apt-get install ffmpeg
+# Ubuntu / Debian
+sudo apt-get install ffmpeg -y
 
 # macOS
 brew install ffmpeg
 
 # Windows
-# Download dari https://ffmpeg.org/download.html
+# Download from https://ffmpeg.org/download.html and add to PATH
 ```
 
-### 2. Konfigurasi Environment
+### 3. Set up Python environment
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 4. Configure environment variables
 
 ```bash
 cp .env.example .env
-# Edit .env dan isi API keys
 ```
 
-Isi file `.env`:
+Edit `.env` and fill in your credentials:
+
 ```env
-APP_MODE=LOCAL                    # LOCAL atau VPS
-TELEGRAM_BOT_TOKEN=xxx            # Dari @BotFather
-GEMINI_API_KEY=xxx                # Dari Google AI Studio
-GROQ_API_KEY=xxx                  # Dari Groq Console
+APP_MODE=LOCAL
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+GEMINI_API_KEY=your_gemini_api_key
+GROQ_API_KEY=your_groq_api_key
 MAX_VIDEO_DURATION_MINUTES=60
 MAX_CONCURRENT_JOBS=2
 ```
 
-### 3. Jalankan Bot
+### 5. Run the bot
 
 ```bash
 python main.py
 ```
 
-## 📁 Struktur Project
+## Configuration Modes
 
-```
-telegram-video-bot/
-├── .env                    # Konfigurasi & API keys
-├── .env.example            # Template .env
-├── requirements.txt        # Dependencies
-├── main.py                 # Entry point (aiogram bot + queue)
-├── config.py               # Dual-mode config logic
-│
-├── models/                 # Pydantic schemas
-│   ├── config.py           # AppConfig, AppMode
-│   ├── analysis.py         # AnalysisResult, TimestampSegment
-│   └── subtitle.py         # TranscriptionResult, WordTiming
-│
-├── services/               # 4 AI Agents
-│   ├── downloader.py       # Agent 1: yt-dlp download
-│   ├── ai_analyzer.py      # Agent 2: Gemini viral analysis
-│   ├── transcriber.py      # Agent 3: Groq Whisper + ASS
-│   └── video_editor.py     # Agent 4: FFmpeg pipeline
-│
-├── utils/                  # Helpers
-│   ├── validators.py       # URL validation, duration check
-│   ├── file_manager.py     # Temp lifecycle management
-│   └── ass_builder.py     # ASS subtitle styling generator
-│
-└── temp/                   # Auto-created temp storage
+### Local Mode
+
+```env
+APP_MODE=LOCAL
 ```
 
-## 🎯 Cara Pakai
-
-1. **Kirim link YouTube** ke bot (format: `youtube.com/watch?v=...`)
-2. **Tunggu proses** — bot akan update status tiap tahap:
-   - ⏳ Download video
-   - 🧠 Analisis konten viral
-   - 📝 Transkripsi audio
-   - ✂️ Render clip 9:16
-3. **Terima hasil** — 1-3 clip MP4 dengan subtitle burn-in
-4. **Beri feedback** — 👍 atau 👎 untuk improve AI
-
-## 🔧 Konfigurasi Mode
-
-### LOCAL Mode
-- Temp path: `D:/telegram-video-bot-temp/`
-- Render preset: `medium` (kualitas lebih baik)
-- Auto cleanup: ❌ Manual
+- Temp directory: `D:/telegram-video-bot-temp/`
+- FFmpeg preset: `medium`
+- Auto cleanup: disabled (manual)
 
 ### VPS Mode
-- Temp path: `/tmp/telegram-video-bot/`
-- Render preset: `ultrafast` (cepat, hemat CPU)
-- Auto cleanup: ✅ Setelah kirim
 
-## 🛡️ Error Handling
+```env
+APP_MODE=VPS
+```
 
-| Error | Handling |
-|-------|----------|
-| Gemini API timeout | Retry 3x → fallback heuristic |
-| Gemini circuit open | Langsung fallback (ambil tengah video) |
-| Video terlalu panjang | Reject sebelum download |
-| FFmpeg timeout (>10m) | Cancel dengan pesan error |
-| Disk space habis | Cek sebelum render |
+- Temp directory: `/tmp/telegram-video-bot/`
+- FFmpeg preset: `ultrafast`
+- Auto cleanup: enabled after delivery
 
-## 📈 Feedback Database
+Switching modes requires no code changes — only the `.env` file.
 
-Feedback user disimpan di SQLite (`temp/clipper.db`) dengan schema:
+## Usage
+
+1. Send a YouTube link to the bot via Telegram.
+2. The bot sends status updates at each pipeline stage.
+3. Receive 1 to 3 portrait clips with burned-in subtitles.
+4. Rate each clip with the inline thumbs-up or thumbs-down buttons.
+
+## Error Handling
+
+| Failure | Handling |
+|---------|----------|
+| Gemini API timeout / rate limit | Retry 3 times with exponential backoff; fallback to heuristic segment selection |
+| Gemini circuit breaker open | Immediate fallback to middle-segment heuristic |
+| Video exceeds duration limit | Rejected before download |
+| FFmpeg render timeout (> 10 min) | Cancelled with error message |
+| Insufficient disk space | Checked before render; rejected with warning |
+
+## Feedback Database
+
+User ratings are stored in SQLite (`temp/clipper.db`) with the following schema:
 
 ```sql
-feedback (
+CREATE TABLE feedback (
     video_id TEXT,
     segment_index INTEGER,
-    rating INTEGER,        -- -1 (👎) atau 1 (👍)
+    rating INTEGER,        -- -1 (dislike) or 1 (like)
     user_id INTEGER,
     timestamp TEXT,
     reasoning TEXT
-)
+);
 ```
 
-Data ini bisa dipakai untuk:
-- Fine-tune prompt Gemini
-- Analisis segment mana yang paling disukai user
-- Improve confidence scoring
+This data can be used for:
+- Fine-tuning the Gemini analysis prompt
+- Segment quality analysis
+- Confidence score recalibration
 
-## 📝 Catatan Penting
+## Deployment
 
-1. **Gemini Video Upload**: Video di-upload ke Google Cloud temporary. Pastikan video tidak melebihi quota Gemini.
-2. **Groq Whisper Limit**: Audio max ~25MB. Untuk video panjang, pertimbangkan split audio.
-3. **FFmpeg Preset**: `ultrafast` = file lebih besar tapi render cepat. `medium` = kualitas lebih baik.
-4. **Concurrent Jobs**: Di VPS, jangan set terlalu tinggi karena FFmpeg CPU-intensive.
+### VPS Deployment
 
-## 🔮 Roadmap
+Recommended providers: DigitalOcean, Vultr, Hetzner, or AWS Lightsail. Minimum 2 GB RAM is advised because FFmpeg rendering is memory-intensive.
 
-- [ ] Face tracking untuk smart crop (follow speaker)
-- [ ] Multiple subtitle themes (CapCut, YouTube Shorts, TikTok)
-- [ ] Auto-caption generation (tanpa speech)
-- [ ] Batch processing (multiple links sekaligus)
-- [ ] Web dashboard untuk monitoring jobs & feedback stats
+1. Provision an Ubuntu 22.04 server.
+2. Install Python, pip, venv, and FFmpeg.
+3. Upload the project via `scp` or `git clone`.
+4. Set `APP_MODE=VPS` in `.env`.
+5. Run with a process manager such as `systemd` or `tmux` to keep the bot alive.
 
-## 📄 License
+Example `systemd` service file:
 
-MIT License — free to use and modify.
+```ini
+[Unit]
+Description=AI Video Clipper Bot
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/telegram-video-bot
+ExecStart=/root/telegram-video-bot/venv/bin/python /root/telegram-video-bot/main.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start:
+
+```bash
+systemctl daemon-reload
+systemctl enable clipper-bot
+systemctl start clipper-bot
+journalctl -u clipper-bot -f
+```
+
+## Important Notes
+
+- Gemini video uploads are temporary and stored in Google Cloud. Large videos may hit quota limits; consider frame sampling for content longer than 30 minutes.
+- Groq Whisper has an approximate audio file size limit of 25 MB. Long videos may require audio splitting.
+- The `ultrafast` FFmpeg preset produces larger files but renders faster, which is ideal for VPS environments. Use `medium` for better compression when running locally.
+- Keep `MAX_CONCURRENT_JOBS` low (1 to 2) on small VPS instances to avoid CPU and memory exhaustion.
+
+## Roadmap
+
+- Face-tracking smart crop (follow the speaker instead of center crop)
+- Multiple subtitle themes (CapCut, YouTube Shorts, TikTok)
+- Auto-caption generation for non-speech content
+- Batch processing for multiple URLs
+- Web dashboard for job monitoring and feedback analytics
+
+## License
+
+MIT License
