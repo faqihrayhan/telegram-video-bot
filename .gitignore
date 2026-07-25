@@ -52,5 +52,5 @@ temp/*
 .DS_Store
 Thumbs.db
 
-# Backup
-.backup
+# Ignore Backup File
+*.backup
