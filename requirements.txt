@@ -1,0 +1,30 @@
+# AI Video Clipper Bot - Python Dependencies
+# Install: pip install -r requirements.txt
+
+# Telegram Bot Framework
+aiogram>=3.0.0
+
+# Environment Variables
+python-dotenv>=1.0.0
+
+# Data Validation
+pydantic>=2.0.0
+
+# Google Gemini API
+google-generativeai>=0.8.0
+
+# Groq API (Whisper)
+groq>=0.9.0
+
+# YouTube Downloader
+yt-dlp>=2024.7.0
+
+# HTTP Client
+aiohttp>=3.9.0
+
+# Database (feedback & cache)
+aiosqlite>=0.20.0
+
+# Image Processing (optional, for face tracking)
+# opencv-python-headless>=4.9.0
+# mediapipe>=0.10.0
