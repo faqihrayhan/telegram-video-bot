@@ -107,7 +107,8 @@ class VideoEditorAgent:
 
         await self._run_ffmpeg(cmd, "cut segment")
 
-    async def _crop_9x16(self, video_path: Path, output_path: Path) -> None:
+    async def _crop_9x16(self, video_path: Path, output_path: Path,
+                     preset: Optional[str] = None) -> None:
         """Crop video to 9:16 portrait format using center crop.
 
         For 1920x1080 input: crop to 608x1080 (center)
@@ -137,8 +138,9 @@ class VideoEditorAgent:
         await self._run_ffmpeg(cmd, "crop 9:16")
 
     async def _burn_subtitle(self, video_path: Path, 
-                             subtitle_path: Path,
-                             output_path: Path) -> None:
+                         subtitle_path: Path,
+                         output_path: Path,
+                         preset: Optional[str] = None) -> None:
         """Burn ASS subtitle into video using FFmpeg."""
         # Escape subtitle path for FFmpeg filter
         sub_path_escaped = str(subtitle_path).replace(chr(92), "/")
