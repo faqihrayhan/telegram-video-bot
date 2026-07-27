@@ -1,6 +1,6 @@
 # AI Video Clipper Bot
 
-A Telegram bot that automatically converts YouTube videos into viral-ready 9:16 portrait clips with burned-in subtitles. Built on a modular 4-agent architecture with retry logic, circuit breakers, and a feedback-driven improvement loop.
+A Telegram bot that automatically converts YouTube videos into viral-ready 9:16 portrait clips with burned-in subtitles. Built on a modular 4-agent architecture with per-user toggle controls, retry logic, circuit breakers, and a feedback-driven improvement loop.
 
 ## Architecture
 
@@ -19,39 +19,44 @@ User (Telegram) -> Agent 1 -> Agent 2 -> Agent 3 -> Agent 4 -> User
 
 ## Features
 
-- **Retry and Circuit Breaker** on the Gemini API. Falls back to a heuristic middle-segment selector if the AI service is unavailable.
-- **Concurrent Job Queue** using asyncio semaphores to limit simultaneous FFmpeg renders and prevent resource exhaustion.
-- **User Feedback Loop** via inline Telegram buttons. Ratings are stored in SQLite for future prompt fine-tuning.
-- **Metadata Caching** to avoid repeated fetches for the same YouTube URL.
-- **Dynamic ASS Subtitles** with karaoke-style word highlighting.
-- **Dual-Mode Configuration** switchable via a single environment variable for local development vs. VPS deployment.
+- **Inline Toggle Menu** — Users can switch settings directly from Telegram without editing config files
+- **Per-User Settings** — Each user has independent configuration stored in SQLite
+- **Mode Toggle (LOCAL / VPS)** — Switch between quality-focused local rendering and speed-focused VPS rendering
+- **Transcriber Toggle (ON / OFF)** — Enable or disable subtitle generation to save API costs
+- **Whisper Model Selector** — Choose between Large v3 (accuracy) or Turbo (2.8x cheaper)
+- **Max Clips Selector** — Limit how many clips to generate per video (1-5)
+- **Retry and Circuit Breaker** on the Gemini API. Falls back to a heuristic middle-segment selector if the AI service is unavailable
+- **Concurrent Job Queue** using asyncio semaphores to limit simultaneous FFmpeg renders
+- **User Feedback Loop** via inline Telegram buttons. Ratings are stored in SQLite for future prompt fine-tuning
+- **Metadata Caching** to avoid repeated fetches for the same YouTube URL
+- **Dynamic ASS Subtitles** with karaoke-style word highlighting
 
 ## Project Structure
 
 ```
 telegram-video-bot/
-├── .env                    # API keys and mode switch
+├── .env                    # API keys and default mode switch
 ├── .env.example            # Template
 ├── requirements.txt        # Python dependencies
-├── main.py                 # Bot entry point, job queue, and feedback handlers
+├── main.py                 # Bot entry point, job queue, toggle menu, and feedback handlers
 │
 ├── models/                 # Pydantic schemas for structured agent communication
-│   ├── config.py           # AppConfig, AppMode (LOCAL / VPS)
+│   ├── config.py           # AppConfig, AppMode (LOCAL / VPS), model_copy()
 │   ├── analysis.py         # AnalysisResult, TimestampSegment, FeedbackEntry
 │   └── subtitle.py         # TranscriptionResult, WordTiming, SubtitleStyle
 │
 ├── services/               # The four agent implementations
 │   ├── downloader.py       # Agent 1: yt-dlp download with metadata cache
 │   ├── ai_analyzer.py      # Agent 2: Gemini analysis with circuit breaker
-│   ├── transcriber.py      # Agent 3: Groq Whisper transcription
-│   └── video_editor.py     # Agent 4: FFmpeg pipeline
+│   ├── transcriber.py      # Agent 3: Groq Whisper transcription (model override support)
+│   └── video_editor.py     # Agent 4: FFmpeg pipeline (preset override support)
 │
 ├── utils/                  # Shared utilities
 │   ├── validators.py       # URL validation, duration checks, filename sanitization
 │   ├── file_manager.py     # Temp directory lifecycle and disk space monitoring
 │   └── ass_builder.py      # ASS subtitle generator with word-highlight styling
 │
-└── temp/                   # Auto-created by config.py
+└── temp/                   # Auto-created by config.py (LOCAL: D:/, VPS: /tmp/)
 ```
 
 ## Requirements
@@ -105,7 +110,7 @@ APP_MODE=LOCAL
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 GEMINI_API_KEY=your_gemini_api_key
 GROQ_API_KEY=your_groq_api_key
-MAX_VIDEO_DURATION_MINUTES=60
+MAX_VIDEO_DURATION_MINUTES=120
 MAX_CONCURRENT_JOBS=2
 ```
 
@@ -115,36 +120,116 @@ MAX_CONCURRENT_JOBS=2
 python main.py
 ```
 
+## Usage
+
+### Main Menu
+
+Send `/start` to open the inline menu:
+
+```
+Process Video
+Mode: LOCAL          Transcriber: ON
+Skill Manager        Settings
+Help
+```
+
+### Toggle Controls
+
+| Button | Function |
+|--------|----------|
+| **Mode** | Toggle between LOCAL (quality) and VPS (speed) |
+| **Transcriber** | Toggle subtitle generation ON/OFF |
+| **Skill Manager** | View agent pipeline status |
+| **Settings** | Configure max clips, whisper model, auto cleanup |
+
+### Settings Panel
+
+```
+Toggle Mode (LOCAL/VPS)
+Toggle Transcriber
+Auto Cleanup: ON
+Max Clips
+Whisper Model
+Back to Main
+```
+
+- **Max Clips**: Choose 1-5 clips per video
+- **Whisper Model**: Large v3 (best accuracy) or Turbo (2.8x cheaper)
+- **Auto Cleanup**: Automatically delete temp files after processing
+
+### Sending a Video
+
+1. Toggle your preferred settings via the menu
+2. Send any YouTube link directly in chat
+3. The bot displays real-time status updates at each pipeline stage
+4. Receive clips and rate them with inline buttons
+
 ## Configuration Modes
 
 ### Local Mode
 
-```env
-APP_MODE=LOCAL
+```
+Mode: LOCAL
 ```
 
 - Temp directory: `D:/telegram-video-bot-temp/`
-- FFmpeg preset: `medium`
-- Auto cleanup: disabled (manual)
+- FFmpeg preset: `medium` (better compression)
+- Auto cleanup: disabled by default (manual)
 
 ### VPS Mode
 
-```env
-APP_MODE=VPS
+```
+Mode: VPS
 ```
 
 - Temp directory: `/tmp/telegram-video-bot/`
-- FFmpeg preset: `ultrafast`
+- FFmpeg preset: `ultrafast` (faster render)
 - Auto cleanup: enabled after delivery
 
-Switching modes requires no code changes — only the `.env` file.
+Switching modes requires no code changes — users toggle directly from the Telegram menu.
 
-## Usage
+## Cost Optimization
 
-1. Send a YouTube link to the bot via Telegram.
-2. The bot sends status updates at each pipeline stage.
-3. Receive 1 to 3 portrait clips with burned-in subtitles.
-4. Rate each clip with the inline thumbs-up or thumbs-down buttons.
+### Frame Sampling for Long Videos
+
+Gemini analyzes video by extracting frames. For videos longer than 30 minutes, the bot automatically applies **frame sampling** (1 frame every 5 seconds instead of every 1 second) to reduce token usage:
+
+| Video Duration | Frame Rate | Frames Analyzed | Token Savings |
+|---------------|------------|-----------------|---------------|
+| 10 minutes | 1 fps (default) | 600 frames | — |
+| 45 minutes | 1 fps | 2,700 frames | Baseline |
+| 45 minutes | 1 per 5s (auto) | 540 frames | **80% fewer tokens** |
+| 2 hours | 1 fps | 7,200 frames | Baseline |
+| 2 hours | 1 per 5s (auto) | 1,440 frames | **80% fewer tokens** |
+
+Frame sampling is **automatic** — no user action required. The bot detects video duration and applies the appropriate sampling rate.
+
+### Toggle Impact on Cost
+
+| Toggle | Savings per 60-min Video | How to Use |
+|--------|--------------------------|------------|
+| **Transcriber OFF** | Rp 1,776 (54% total) | Click "Transcriber: ON" in menu |
+| **Whisper Turbo** | Rp 1,136 (35% total) | Settings -> Whisper Model -> Turbo |
+| **Mode VPS/LOCAL** | No cost difference | Only affects render speed |
+
+### Cost Breakdown per Video
+
+| Video Duration | Transcriber ON (v3) | Transcriber ON (Turbo) | Transcriber OFF |
+|---------------|---------------------|------------------------|-----------------|
+| 10 minutes | Rp 549 | Rp 360 | Rp 253 |
+| 25 minutes | Rp 1,364 | Rp 891 | Rp 624 |
+| 60 minutes | Rp 3,267 | Rp 2,131 | Rp 1,491 |
+| 120 minutes | Rp 6,534 | Rp 4,262 | Rp 2,982 |
+
+> Kurs: $1 = Rp 16,000. Gemini analysis is the fixed cost; Whisper transcription is the variable cost.
+
+### Recommended Configurations
+
+| Use Case | Setting | Cost (60 min) | Cost (120 min) |
+|----------|---------|---------------|----------------|
+| Budget mode | Transcriber OFF | Rp 1,491 | Rp 2,982 |
+| Balanced | Turbo + ON | Rp 2,131 | Rp 4,262 |
+| Maximum quality | v3 + ON + LOCAL | Rp 3,267 | Rp 6,534 |
 
 ## Error Handling
 
@@ -222,6 +307,7 @@ journalctl -u clipper-bot -f
 - Groq Whisper has an approximate audio file size limit of 25 MB. Long videos may require audio splitting.
 - The `ultrafast` FFmpeg preset produces larger files but renders faster, which is ideal for VPS environments. Use `medium` for better compression when running locally.
 - Keep `MAX_CONCURRENT_JOBS` low (1 to 2) on small VPS instances to avoid CPU and memory exhaustion.
+- Per-user settings are stored in SQLite and persist across bot restarts.
 
 ## Roadmap
 
@@ -230,6 +316,7 @@ journalctl -u clipper-bot -f
 - Auto-caption generation for non-speech content
 - Batch processing for multiple URLs
 - Web dashboard for job monitoring and feedback analytics
+- Admin panel to view user settings and usage statistics
 
 ## License
 
