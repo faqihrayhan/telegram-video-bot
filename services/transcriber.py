@@ -27,7 +27,8 @@ class TranscriberAgent:
 
     async def transcribe(self, audio_path: Path, 
                          segment_start: float = 0,
-                         segment_end: Optional[float] = None) -> TranscriptionResult:
+                         segment_end: Optional[float] = None,
+                         model: Optional[str] = None) -> TranscriptionResult:
         """Transcribe audio segment with word-level timestamps.
 
         Args:
@@ -58,7 +59,7 @@ class TranscriberAgent:
             with open(audio_path, "rb") as audio_file:
                 response = self.client.audio.transcriptions.create(
                     file=audio_file,
-                    model=self.config.groq_whisper_model,
+                    model=model or self.config.groq_whisper_model,
                     response_format="verbose_json",
                     timestamp_granularities=["word"],
                     language=None,  # Auto-detect

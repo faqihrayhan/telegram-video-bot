@@ -5,6 +5,8 @@ Telegram bot built with aiogram featuring inline keyboard menus for:
 - Transcriber on/off toggle  
 - Skill manager / settings panel
 - Status display with current configuration
+
+All toggles are fully integrated into the processing pipeline.
 """
 import os
 import sys
@@ -257,10 +259,9 @@ class ClipperBot:
         self.db = FeedbackDatabase(self.config.db_path)
         self.settings = SettingsManager(self.config.db_path)
 
-        self.ingestion = MediaIngestionAgent(self.config, self.file_manager)
+        # Shared agents (stateless or configurable via method params)
         self.analyst = ContentAnalystAgent(self.config)
         self.transcriber = TranscriberAgent(self.config)
-        self.editor = VideoEditorAgent(self.config, self.file_manager)
 
         self.job_semaphore = asyncio.Semaphore(self.config.max_concurrent_jobs)
         self._setup_handlers()
@@ -305,7 +306,6 @@ class ClipperBot:
     # ==================== KEYBOARD BUILDERS ====================
 
     def _main_menu_keyboard(self, settings: UserSettings) -> InlineKeyboardMarkup:
-        """Build main menu keyboard."""
         mode_icon = "VPS" if settings.app_mode == "VPS" else "LOCAL"
         trans_icon = "ON" if settings.transcriber_enabled else "OFF"
 
@@ -327,7 +327,6 @@ class ClipperBot:
         ])
 
     def _settings_keyboard(self, settings: UserSettings) -> InlineKeyboardMarkup:
-        """Build settings panel keyboard."""
         cleanup_icon = "ON" if settings.auto_cleanup else "OFF"
 
         return InlineKeyboardMarkup(inline_keyboard=[
@@ -352,7 +351,6 @@ class ClipperBot:
         ])
 
     def _skills_keyboard(self, settings: UserSettings) -> InlineKeyboardMarkup:
-        """Build skill manager keyboard."""
         return InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(text="Agent 1: Ingestion", callback_data="skill:ingestion"),
@@ -372,7 +370,6 @@ class ClipperBot:
         ])
 
     def _clips_keyboard(self, current: int) -> InlineKeyboardMarkup:
-        """Build max clips selector."""
         buttons = []
         row = []
         for i in range(1, 6):
@@ -383,7 +380,6 @@ class ClipperBot:
         return InlineKeyboardMarkup(inline_keyboard=buttons)
 
     def _whisper_keyboard(self, current: str) -> InlineKeyboardMarkup:
-        """Build whisper model selector."""
         models = [
             ("Large v3", "whisper-large-v3"),
             ("Turbo", "whisper-large-v3-turbo"),
@@ -396,7 +392,6 @@ class ClipperBot:
         return InlineKeyboardMarkup(inline_keyboard=buttons)
 
     def _status_text(self, settings: UserSettings) -> str:
-        """Build status display text."""
         mode_emoji = "VPS" if settings.app_mode == "VPS" else "LOCAL"
         trans_emoji = "ON" if settings.transcriber_enabled else "OFF"
         cleanup_emoji = "ON" if settings.auto_cleanup else "OFF"
@@ -416,7 +411,6 @@ class ClipperBot:
     # ==================== COMMAND HANDLERS ====================
 
     async def cmd_start(self, message: Message):
-        """Handle /start command with main menu."""
         user_id = message.from_user.id
         settings = await self.settings.get(user_id)
 
@@ -446,7 +440,6 @@ class ClipperBot:
         await message.answer(help_text, parse_mode=ParseMode.HTML)
 
     async def cmd_settings(self, message: Message):
-        """Handle /settings command."""
         user_id = message.from_user.id
         settings = await self.settings.get(user_id)
         keyboard = self._settings_keyboard(settings)
@@ -464,7 +457,6 @@ class ClipperBot:
     # ==================== CALLBACK HANDLERS ====================
 
     async def cb_process_video(self, callback: CallbackQuery):
-        """Show instruction to send YouTube link."""
         await callback.message.edit_text(
             "<b>Process Video</b>\n\n"
             "Send a YouTube link to start processing.\n"
@@ -480,7 +472,6 @@ class ClipperBot:
         await callback.answer()
 
     async def cb_show_settings(self, callback: CallbackQuery):
-        """Show settings panel."""
         user_id = callback.from_user.id
         settings = await self.settings.get(user_id)
         keyboard = self._settings_keyboard(settings)
@@ -497,7 +488,6 @@ class ClipperBot:
         await callback.answer()
 
     async def cb_show_skills(self, callback: CallbackQuery):
-        """Show skill manager."""
         user_id = callback.from_user.id
         settings = await self.settings.get(user_id)
         keyboard = self._skills_keyboard(settings)
@@ -515,7 +505,6 @@ class ClipperBot:
         await callback.answer()
 
     async def cb_help(self, callback: CallbackQuery):
-        """Show help from callback."""
         text = (
             "<b>Help & Documentation</b>\n\n"
             "<b>Quick Start:</b>\n"
@@ -541,7 +530,6 @@ class ClipperBot:
     # ==================== TOGGLE HANDLERS ====================
 
     async def cb_toggle_mode(self, callback: CallbackQuery):
-        """Toggle between LOCAL and VPS mode."""
         user_id = callback.from_user.id
         settings = await self.settings.get(user_id)
         new_mode = "VPS" if settings.app_mode == "LOCAL" else "LOCAL"
@@ -558,7 +546,6 @@ class ClipperBot:
         await callback.answer(f"Mode switched to {new_mode}")
 
     async def cb_toggle_transcriber(self, callback: CallbackQuery):
-        """Toggle transcriber on/off."""
         user_id = callback.from_user.id
         settings = await self.settings.get(user_id)
         new_state = not settings.transcriber_enabled
@@ -576,7 +563,6 @@ class ClipperBot:
         await callback.answer(f"Transcriber {status}")
 
     async def cb_toggle_cleanup(self, callback: CallbackQuery):
-        """Toggle auto cleanup on/off."""
         user_id = callback.from_user.id
         settings = await self.settings.get(user_id)
         new_state = not settings.auto_cleanup
@@ -601,7 +587,6 @@ class ClipperBot:
         await callback.answer(f"Auto Cleanup {status}")
 
     async def cb_set_clips(self, callback: CallbackQuery):
-        """Handle max clips selection."""
         user_id = callback.from_user.id
         data = callback.data
 
@@ -636,7 +621,6 @@ class ClipperBot:
         await callback.answer(f"Max clips set to {clips}")
 
     async def cb_set_whisper(self, callback: CallbackQuery):
-        """Handle whisper model selection."""
         user_id = callback.from_user.id
         data = callback.data
 
@@ -672,7 +656,6 @@ class ClipperBot:
         await callback.answer(f"Whisper model: {model}")
 
     async def cb_back_main(self, callback: CallbackQuery):
-        """Return to main menu."""
         user_id = callback.from_user.id
         settings = await self.settings.get(user_id)
         keyboard = self._main_menu_keyboard(settings)
@@ -682,7 +665,6 @@ class ClipperBot:
         await callback.answer()
 
     async def cb_back_settings(self, callback: CallbackQuery):
-        """Return to settings panel."""
         user_id = callback.from_user.id
         settings = await self.settings.get(user_id)
         keyboard = self._settings_keyboard(settings)
@@ -698,7 +680,7 @@ class ClipperBot:
         await callback.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
         await callback.answer()
 
-    # ==================== VIDEO PROCESSING ====================
+    # ==================== VIDEO PROCESSING (FULLY INTEGRATED) ====================
 
     async def handle_youtube_link(self, message: Message):
         """Handle incoming YouTube URL."""
@@ -720,18 +702,47 @@ class ClipperBot:
     async def _process_job(self, job_id: str, session_id: str, 
                            user_id: int, url: str, message: Message, 
                            settings: UserSettings):
-        """Process video with user settings applied."""
+        """Process video with FULL user settings integration into the pipeline."""
         async with self.job_semaphore:
+
+            # ===== BUILD USER-SPECIFIC CONFIG =====
+            user_config = self.config.model_copy(update={
+                "app_mode": settings.app_mode,
+                "groq_whisper_model": settings.whisper_model,
+            })
+
+            # Log user settings for debugging
+            logger.info(
+                f"Job {job_id} | User {user_id} | "
+                f"Mode={settings.app_mode} | "
+                f"Transcriber={settings.transcriber_enabled} | "
+                f"MaxClips={settings.max_clips} | "
+                f"Whisper={settings.whisper_model} | "
+                f"Cleanup={settings.auto_cleanup}"
+            )
+
+            # Build user-specific services
+            user_file_manager = TempFileManager(user_config)
+            user_ingestion = MediaIngestionAgent(user_config, user_file_manager)
+            user_editor = VideoEditorAgent(user_config, user_file_manager)
+
             await self.db.save_job(job_id, user_id, url, "processing")
 
             status_msg = await message.answer(
-                "<b>Starting process...</b>", parse_mode=ParseMode.HTML
+                f"<b>Starting process...</b>\n"
+                f"<code>Mode: {settings.app_mode} | "
+                f"Transcriber: {'ON' if settings.transcriber_enabled else 'OFF'} | "
+                f"Clips: {settings.max_clips}</code>",
+                parse_mode=ParseMode.HTML
             )
 
             try:
-                # AGENT 1: INGESTION
-                await self._update_status(status_msg, "Agent 1/4: Downloading video...")
-                video_path, audio_path, metadata = await self.ingestion.process(url, session_id)
+                # ===== AGENT 1: INGESTION (with user config) =====
+                await self._update_status(status_msg, 
+                    f"Agent 1/4: Downloading video...\n"
+                    f"<code>Mode: {settings.app_mode}</code>")
+
+                video_path, audio_path, metadata = await user_ingestion.process(url, session_id)
 
                 title = metadata.get("title", "Unknown")
                 duration = metadata.get("duration", 0)
@@ -740,17 +751,19 @@ class ClipperBot:
                     status_msg,
                     f"Download complete!\n"
                     f"<b>{title[:50]}{'...' if len(title) > 50 else ''}</b>\n"
-                    f"Duration: {duration/60:.1f} min\n\n"
+                    f"Duration: {duration/60:.1f} min\n"
+                    f"Temp: <code>{user_config.temp_base_path}</code>\n\n"
                     f"Agent 2/4: Analyzing content..."
                 )
 
-                # AGENT 2: ANALYSIS
+                # ===== AGENT 2: ANALYSIS =====
                 analysis = await self.analyst.analyze(video_path, audio_path, metadata)
 
                 if not analysis.segments:
                     await self._update_status(status_msg, "No viral segments found.")
                     return
 
+                # Apply user max clips setting
                 max_clips = min(settings.max_clips, len(analysis.segments))
                 segments = analysis.segments[:max_clips]
 
@@ -762,13 +775,14 @@ class ClipperBot:
                 await self._update_status(
                     status_msg,
                     f"Analysis complete!\n"
-                    f"Found {len(segments)} segments:\n"
+                    f"Found {len(analysis.segments)} segments, "
+                    f"using top {max_clips} (user limit)\n"
                     f"<code>{segments_text}</code>\n\n"
                     f"Agent 3/4: Processing...",
                     parse_mode=ParseMode.HTML
                 )
 
-                # AGENT 3 & 4: TRANSCRIBE + EDIT
+                # ===== AGENT 3 & 4: TRANSCRIBE + EDIT =====
                 rendered_clips = []
 
                 for idx, segment in enumerate(segments):
@@ -777,10 +791,14 @@ class ClipperBot:
                     if settings.transcriber_enabled:
                         await self._update_status(
                             status_msg,
-                            f"Agent 3/4: Transcribing segment {idx+1}/{len(segments)}..."
+                            f"Agent 3/4: Transcribing segment {idx+1}/{len(segments)}...\n"
+                            f"<code>Model: {settings.whisper_model}</code>"
                         )
 
-                        transcription = await self.transcriber.transcribe(audio_path)
+                        transcription = await self.transcriber.transcribe(
+                            audio_path,
+                            model=settings.whisper_model  # <-- USER WHISPER MODEL
+                        )
 
                         segment_words = [
                             w for w in transcription.words
@@ -798,7 +816,7 @@ class ClipperBot:
                             duration=segment.duration
                         )
 
-                        subtitle_path = self.file_manager.get_temp_path(
+                        subtitle_path = user_file_manager.get_temp_path(
                             session_id, f"subtitle_{idx+1:02d}.ass"
                         )
                         await self.transcriber.generate_subtitle(
@@ -812,21 +830,23 @@ class ClipperBot:
 
                     await self._update_status(
                         status_msg,
-                        f"Agent 4/4: Rendering clip {idx+1}/{len(segments)}..."
+                        f"Agent 4/4: Rendering clip {idx+1}/{len(segments)}...\n"
+                        f"<code>Preset: {user_config.ffmpeg_preset}</code>"
                     )
 
-                    clip_path = await self.editor.render_clip(
+                    clip_path = await user_editor.render_clip(
                         video_path=video_path,
                         audio_path=audio_path,
                         segment=segment,
                         subtitle_path=subtitle_path,
                         session_id=session_id,
-                        segment_index=idx
+                        segment_index=idx,
+                        preset=user_config.ffmpeg_preset  # <-- USER PRESET
                     )
 
                     rendered_clips.append((clip_path, segment, idx))
 
-                # DELIVERY
+                # ===== DELIVERY =====
                 await self._update_status(status_msg, "Sending results...")
 
                 video_id = url.split("v=")[-1].split("&")[0] if "v=" in url else url.split("/")[-1]
@@ -864,7 +884,8 @@ class ClipperBot:
                 await self._update_status(
                     status_msg,
                     f"<b>Done!</b> {len(rendered_clips)} clip(s) generated.\n"
-                    f"Thanks for the feedback!"
+                    f"<code>Mode: {settings.app_mode} | "
+                    f"Preset: {user_config.ffmpeg_preset}</code>"
                 )
                 await self.db.update_job_status(job_id, "completed")
 
@@ -891,8 +912,12 @@ class ClipperBot:
                 )
                 await self.db.update_job_status(job_id, "failed_unknown")
             finally:
-                if settings.auto_cleanup or self.config.auto_cleanup:
-                    await self.file_manager.cleanup_session(session_id)
+                # Cleanup using user setting
+                if settings.auto_cleanup:
+                    logger.info(f"Job {job_id} | Auto cleanup enabled, cleaning session {session_id}")
+                    await user_file_manager.cleanup_session(session_id)
+                else:
+                    logger.info(f"Job {job_id} | Auto cleanup disabled, keeping files at {user_config.temp_base_path}")
 
     async def _update_status(self, message, text: str, parse_mode=None):
         try:

@@ -19,11 +19,10 @@ class ASSBuilder:
         self.style = style or self.DEFAULT_STYLE
 
     def _escape_ass_text(self, text: str) -> str:
-        """Escape special characters for ASS format."""
-        text = text.replace("\\", "\\")
-        text = text.replace("{", "\{")
-        text = text.replace("}", "\}")
-        return text
+         text = text.replace(chr(92), chr(92)+chr(92))
+         text = text.replace("{", chr(92)+"{")
+         text = text.replace("}", chr(92)+"}")
+         return text
 
     def _generate_header(self) -> str:
         """Generate ASS file header with style definitions."""

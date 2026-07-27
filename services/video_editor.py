@@ -43,7 +43,8 @@ class VideoEditorAgent:
                           segment: TimestampSegment,
                           subtitle_path: Optional[Path],
                           session_id: str,
-                          segment_index: int) -> Path:
+                          segment_index: int,
+                          preset: Optional[str] = None) -> Path:
         """Render a single clip: cut → crop 9:16 → burn subtitle → encode.
 
         Args:
@@ -125,7 +126,7 @@ class VideoEditorAgent:
                 "fps=30"                               # Ensure 30fps
             ),
             "-c:v", "libx264",
-            "-preset", self.config.ffmpeg_preset,
+            "-preset", preset or self.config.ffmpeg_preset,
             "-crf", "23",
             "-c:a", "aac",
             "-b:a", "192k",
@@ -140,14 +141,14 @@ class VideoEditorAgent:
                              output_path: Path) -> None:
         """Burn ASS subtitle into video using FFmpeg."""
         # Escape subtitle path for FFmpeg filter
-        sub_path_escaped = str(subtitle_path).replace("\\", "/").replace(":", "\\:")
+        sub_path_escaped = str(subtitle_path).replace(chr(92), "/")
 
         cmd = [
             "ffmpeg", "-y",
             "-i", str(video_path),
             "-vf", f"ass={sub_path_escaped}",
             "-c:v", "libx264",
-            "-preset", self.config.ffmpeg_preset,
+            "-preset", preset or self.config.ffmpeg_preset,
             "-crf", "23",
             "-c:a", "copy",
             "-movflags", "+faststart",

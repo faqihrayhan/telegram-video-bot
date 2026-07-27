@@ -52,3 +52,10 @@ class AppConfig(BaseModel):
         if isinstance(v, str):
             return v.strip().upper()
         return v
+
+    def model_copy(self, update: dict = None) -> "AppConfig":
+        """Create a copy with optional field overrides."""
+        data = self.model_dump()
+        if update:
+            data.update(update)
+        return AppConfig(**data)
