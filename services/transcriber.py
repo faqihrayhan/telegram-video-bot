@@ -3,7 +3,6 @@
 Uses Groq Whisper API for speech-to-text with word-level timestamps.
 Generates styled ASS subtitle files.
 """
-import os
 import asyncio
 from pathlib import Path
 from typing import Optional

@@ -3,12 +3,9 @@
 Handles YouTube link validation, metadata extraction, and media download.
 Includes metadata caching for repeated URLs.
 """
-import os
 import asyncio
-import hashlib
 from pathlib import Path
 from typing import Optional, Tuple
-from datetime import datetime
 
 import yt_dlp
 
@@ -19,7 +16,6 @@ from utils import (
     fetch_video_metadata,
     check_duration,
     sanitize_filename,
-    ValidationError,
 )
 from utils.file_manager import TempFileManager
 

@@ -2,13 +2,12 @@
 
 Handles FFmpeg operations: cut, crop 9:16, burn subtitle, encode.
 """
-import os
 import asyncio
 import subprocess
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 
-from models import AppConfig, AnalysisResult, TimestampSegment
+from models import AppConfig, TimestampSegment
 from utils.file_manager import TempFileManager
 
 
@@ -141,7 +140,7 @@ class VideoEditorAgent:
                              output_path: Path) -> None:
         """Burn ASS subtitle into video using FFmpeg."""
         # Escape subtitle path for FFmpeg filter
-        sub_path_escaped = str(subtitle_path).replace("\", "/").replace(":", "\:")
+        sub_path_escaped = str(subtitle_path).replace("\\", "/").replace(":", "\\:")
 
         cmd = [
             "ffmpeg", "-y",

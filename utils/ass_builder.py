@@ -3,7 +3,6 @@
 Generates Advanced SubStation Alpha (.ass) subtitle files with
 karaoke-style word highlighting effects.
 """
-import math
 from pathlib import Path
 from typing import List
 
@@ -21,7 +20,7 @@ class ASSBuilder:
 
     def _escape_ass_text(self, text: str) -> str:
         """Escape special characters for ASS format."""
-        text = text.replace("\", "\\")
+        text = text.replace("\\", "\\")
         text = text.replace("{", "\{")
         text = text.replace("}", "\}")
         return text

@@ -13,7 +13,7 @@ import asyncio
 import logging
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict
 from dataclasses import dataclass, asdict
 
 import aiosqlite
@@ -28,7 +28,7 @@ from aiogram.enums import ParseMode
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from models import AppConfig, AppMode, AnalysisResult, TimestampSegment
+from models import AppConfig
 from utils import TempFileManager, ValidationError
 from services import (
     MediaIngestionAgent,
@@ -807,7 +807,7 @@ class ClipperBot:
                     else:
                         await self._update_status(
                             status_msg,
-                            f"Agent 3/4: Transcriber OFF, skipping subtitles..."
+                            "Agent 3/4: Transcriber OFF, skipping subtitles..."
                         )
 
                     await self._update_status(

@@ -2,7 +2,6 @@
 
 Handles dual-mode path resolution, cleanup, and storage management.
 """
-import os
 import shutil
 import asyncio
 from pathlib import Path

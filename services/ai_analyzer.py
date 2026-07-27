@@ -3,12 +3,11 @@
 Uses Google Gemini to analyze video content and identify viral-worthy segments.
 Includes retry logic, circuit breaker, and fallback heuristics.
 """
-import os
 import json
 import asyncio
 import time
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional
 from datetime import datetime, timedelta
 
 import google.generativeai as genai
@@ -95,7 +94,7 @@ class ContentAnalystAgent:
                 self.circuit_breaker.record_success()
                 return result
 
-            except (google_exceptions.ResourceExhausted, google_exceptions.ServiceUnavailable) as e:
+            except (google_exceptions.ResourceExhausted, google_exceptions.ServiceUnavailable):
                 self.circuit_breaker.record_failure()
                 if attempt < max_retries - 1:
                     delay = base_delay * (2 ** attempt)
@@ -103,7 +102,7 @@ class ContentAnalystAgent:
                 else:
                     return self._heuristic_fallback(metadata)
 
-            except Exception as e:
+            except Exception:
                 self.circuit_breaker.record_failure()
                 if attempt == max_retries - 1:
                     return self._heuristic_fallback(metadata)
@@ -216,7 +215,7 @@ Rules:
                         hook_type=seg_data.get("hook_type")
                     )
                     segments.append(seg)
-                except (ValueError, KeyError) as e:
+                except (ValueError, KeyError):
                     continue
 
             return AnalysisResult(

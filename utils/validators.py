@@ -4,7 +4,6 @@ Used by all agents to ensure data integrity before processing.
 """
 import re
 import asyncio
-from typing import Optional, Tuple
 from urllib.parse import urlparse, parse_qs
 
 import yt_dlp
