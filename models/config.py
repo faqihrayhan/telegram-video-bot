@@ -17,9 +17,14 @@ class AppConfig(BaseModel):
     gemini_api_key: str = Field(..., min_length=1)
     groq_api_key: str = Field(..., min_length=1)
 
-    max_video_duration_minutes: int = Field(default=60, ge=1, le=180)
+    max_video_duration_minutes: int = Field(default=120, ge=1, le=180)
     max_file_size_mb: int = Field(default=500, ge=10, le=2000)
     max_concurrent_jobs: int = Field(default=2, ge=1, le=10)
+
+    # Gemini video analysis settings
+    gemini_max_duration_minutes: int = Field(default=120, ge=1, le=180)
+    gemini_frame_sampling_interval: int = Field(default=5, ge=1, le=30,
+        description="Extract 1 frame every N seconds for Gemini. Higher = fewer tokens.")
 
     gemini_model: str = Field(default="gemini-2.0-flash")
     groq_whisper_model: str = Field(default="whisper-large-v3")

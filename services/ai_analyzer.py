@@ -5,15 +5,22 @@ Includes retry logic, circuit breaker, and fallback heuristics.
 """
 import json
 import asyncio
+import logging
 import time
 from pathlib import Path
 from typing import Optional
 from datetime import datetime, timedelta
 
+import subprocess
 import google.generativeai as genai
 from google.api_core import exceptions as google_exceptions
 
 from models import AppConfig, AnalysisResult, TimestampSegment
+
+logger = logging.getLogger(__name__)
+
+# Setup logger untuk menghindari F821 Undefined name 'logger'
+logger = logging.getLogger(__name__)
 
 
 class AnalysisError(Exception):
@@ -35,7 +42,10 @@ class CircuitBreaker:
         if self.state == "CLOSED":
             return True
         if self.state == "OPEN":
-            if self.last_failure_time and                datetime.now() - self.last_failure_time > timedelta(seconds=self.recovery_timeout):
+            if (
+                self.last_failure_time
+                and datetime.now() - self.last_failure_time > timedelta(seconds=self.recovery_timeout)
+            ):
                 self.state = "HALF_OPEN"
                 return True
             return False
@@ -65,8 +75,9 @@ class ContentAnalystAgent:
         genai.configure(api_key=self.config.gemini_api_key)
         self.model = genai.GenerativeModel(self.config.gemini_model)
 
-    async def analyze(self, video_path: Path, audio_path: Path, 
-                      metadata: dict) -> AnalysisResult:
+    async def analyze(
+        self, video_path: Path, audio_path: Path, metadata: dict
+    ) -> AnalysisResult:
         """Analyze video and return viral segment timestamps.
 
         Args:
@@ -102,7 +113,8 @@ class ContentAnalystAgent:
                 else:
                     return self._heuristic_fallback(metadata)
 
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Analysis error on attempt {attempt + 1}: {e}")
                 self.circuit_breaker.record_failure()
                 if attempt == max_retries - 1:
                     return self._heuristic_fallback(metadata)
@@ -111,12 +123,34 @@ class ContentAnalystAgent:
         return self._heuristic_fallback(metadata)
 
     async def _call_gemini(self, video_path: Path, metadata: dict) -> AnalysisResult:
-        """Call Gemini API with video for analysis."""
+        """Call Gemini API with video for analysis, with frame sampling for long videos."""
         loop = asyncio.get_event_loop()
+        duration = metadata.get("duration", 0)
+
+        # Determine if frame sampling is needed
+        sampling_interval = self.config.gemini_frame_sampling_interval
+        duration_minutes = duration / 60
+
+        # For videos > 30 min, force higher sampling to save tokens
+        if duration_minutes > 30 and sampling_interval < 5:
+            sampling_interval = 5
+
+        # Prepare video: sample frames if needed
+        if sampling_interval > 1:
+            sampled_video = await self._sample_video_frames(video_path, sampling_interval)
+            upload_path = sampled_video
+            logger.info(
+                f"Gemini: Using frame sampling every {sampling_interval}s for {duration_minutes:.1f}min video"
+            )
+        else:
+            upload_path = video_path
+            logger.info(
+                f"Gemini: Using original video (no sampling) for {duration_minutes:.1f}min video"
+            )
 
         def _analyze():
             # Upload video to Gemini
-            video_file = genai.upload_file(str(video_path), mime_type="video/mp4")
+            video_file = genai.upload_file(str(upload_path), mime_type="video/mp4")
 
             # Wait for processing
             while video_file.state.name == "PROCESSING":
@@ -124,23 +158,30 @@ class ContentAnalystAgent:
                 video_file = genai.get_file(video_file.name)
 
             if video_file.state.name == "FAILED":
-                raise AnalysisError("❌ Gemini gagal memproses video.")
+                raise AnalysisError("Gemini failed to process video.")
 
-            prompt = self._build_prompt(metadata)
+            prompt = self._build_prompt(metadata, sampling_interval)
 
             response = self.model.generate_content(
                 [video_file, prompt],
                 generation_config=genai.GenerationConfig(
                     temperature=0.3,
                     response_mime_type="application/json",
-                )
+                ),
             )
 
-            # Clean up uploaded file
+            # Clean up uploaded file from Gemini servers
             try:
                 genai.delete_file(video_file.name)
-            except:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to delete uploaded file from Gemini: {e}")
+
+            # Clean up local sampled video if it was created
+            if upload_path != video_path:
+                try:
+                    upload_path.unlink(missing_ok=True)
+                except Exception as e:
+                    logger.debug(f"Failed to delete temporary sampled video: {e}")
 
             return response.text
 
@@ -152,11 +193,69 @@ class ContentAnalystAgent:
         except Exception as e:
             raise AnalysisError(f"Gemini API error: {str(e)}")
 
-    def _build_prompt(self, metadata: dict) -> str:
+    async def _sample_video_frames(self, video_path: Path, interval_seconds: int) -> Path:
+        """Create a sampled video with 1 frame every N seconds to reduce tokens.
+
+        Args:
+            video_path: Original video path.
+            interval_seconds: Extract 1 frame every N seconds.
+
+        Returns:
+            Path to sampled video file.
+        """
+        output_path = video_path.with_suffix(".sampled.mp4")
+
+        # Use FFmpeg to sample frames: 1 frame every N seconds
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(video_path),
+            "-vf",
+            f"select=not(mod(n\,{interval_seconds*30})),setpts=N/FRAME_RATE/TB",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-crf",
+            "28",
+            "-an",  # No audio needed for visual analysis
+            str(output_path),
+        ]
+
+        loop = asyncio.get_event_loop()
+
+        def _run():
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=300
+            )
+            return result
+
+        try:
+            result = await loop.run_in_executor(None, _run)
+            if result.returncode != 0:
+                # Fallback: return original video
+                logger.warning(
+                    f"Frame sampling failed, using original video: {result.stderr[-200:]}"
+                )
+                return video_path
+            return output_path
+        except Exception as e:
+            logger.warning(f"Frame sampling error: {e}, using original video")
+            return video_path
+
+    def _build_prompt(self, metadata: dict, sampling_interval: int = 1) -> str:
         """Build analysis prompt for Gemini."""
         duration = metadata.get("duration", 0)
 
-        return f"""Analyze this video and identify the most engaging/viral-worthy segments.
+        sampling_note = ""
+        if sampling_interval > 1:
+            sampling_note = (
+                f"\nNote: This video was frame-sampled (1 frame every {sampling_interval} seconds) "
+                f"to optimize processing. Timestamps are relative to the original video."
+            )
+
+        return f"""Analyze this video and identify the most engaging/viral-worthy segments.{sampling_note}
 
 Video info:
 - Title: {metadata.get("title", "Unknown")}
@@ -197,6 +296,8 @@ Rules:
             text = text.strip()
             if text.startswith("```json"):
                 text = text[7:]
+            if text.startswith("```"):
+                text = text[3:]
             if text.endswith("```"):
                 text = text[:-3]
             text = text.strip()
@@ -212,7 +313,7 @@ Rules:
                         end_time=float(seg_data["end_time"]),
                         reasoning=str(seg_data.get("reasoning", "Viral segment")),
                         confidence=float(seg_data.get("confidence", 0.8)),
-                        hook_type=seg_data.get("hook_type")
+                        hook_type=seg_data.get("hook_type"),
                     )
                     segments.append(seg)
                 except (ValueError, KeyError):
@@ -222,7 +323,7 @@ Rules:
                 segments=segments,
                 video_title=metadata.get("title"),
                 video_duration=metadata.get("duration"),
-                overall_summary=data.get("overall_summary")
+                overall_summary=data.get("overall_summary"),
             )
 
         except json.JSONDecodeError as e:
@@ -237,20 +338,20 @@ Rules:
 
         # Take middle 30-45 seconds
         mid = duration / 2
-        start = max(0, mid - 20)
-        end = min(duration, mid + 25)
+        start = max(0.0, mid - 20)
+        end = min(float(duration), mid + 25)
 
         segment = TimestampSegment(
             start_time=start,
             end_time=end,
             reasoning="Fallback: Mengambil bagian tengah video karena analisis AI tidak tersedia.",
             confidence=0.5,
-            hook_type="unknown"
+            hook_type="unknown",
         )
 
         return AnalysisResult(
             segments=[segment],
             video_title=metadata.get("title"),
             video_duration=duration,
-            overall_summary="Analisis otomatis (fallback mode)"
+            overall_summary="Analisis otomatis (fallback mode)",
         )

@@ -272,11 +272,13 @@ class ClipperBot:
             telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN", ""),
             gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
             groq_api_key=os.getenv("GROQ_API_KEY", ""),
-            max_video_duration_minutes=int(os.getenv("MAX_VIDEO_DURATION_MINUTES", "60")),
+            max_video_duration_minutes=int(os.getenv("MAX_VIDEO_DURATION_MINUTES", "120")),
             max_file_size_mb=int(os.getenv("MAX_FILE_SIZE_MB", "500")),
             max_concurrent_jobs=int(os.getenv("MAX_CONCURRENT_JOBS", "2")),
             gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
             groq_whisper_model=os.getenv("GROQ_WHISPER_MODEL", "whisper-large-v3"),
+            gemini_max_duration_minutes=int(os.getenv("GEMINI_MAX_DURATION_MINUTES", "120")),
+            gemini_frame_sampling_interval=int(os.getenv("GEMINI_FRAME_SAMPLING_INTERVAL", "5")),
         )
 
     def _setup_handlers(self):

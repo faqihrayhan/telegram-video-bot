@@ -119,11 +119,11 @@ def check_duration(duration: float, max_minutes: int) -> None:
     max_seconds = max_minutes * 60
     if duration > max_seconds:
         raise ValidationError(
-            f"❌ Durasi video {duration/60:.1f} menit melebihi batas maksimum "
-            f"{max_minutes} menit."
+            f"❌ Video duration {duration/60:.1f} minutes exceeds maximum "
+            f"{max_minutes} minutes."
         )
     if duration <= 0:
-        raise ValidationError("❌ Durasi video tidak valid (0 detik).")
+        raise ValidationError("❌ Invalid video duration (0 seconds).")
 
 
 def sanitize_filename(title: str, max_length: int = 80) -> str:
