@@ -61,7 +61,7 @@ class TranscriberAgent:
                     file=audio_file,
                     model=model or self.config.groq_whisper_model,
                     response_format="verbose_json",
-                    timestamp_granularities=["word"],
+                    timestamp_granularities=["word", "segment"],
                     language=None,  # Auto-detect
                 )
             return response

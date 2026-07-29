@@ -12,14 +12,12 @@ from typing import Optional
 from datetime import datetime, timedelta
 
 import subprocess
-import google.generativeai as genai
-from google.api_core import exceptions as google_exceptions
+from google import genai
+from google.genai import types
+from google.genai import errors as genai_errors
 
 from models import AppConfig, AnalysisResult, TimestampSegment
 
-logger = logging.getLogger(__name__)
-
-# Setup logger untuk menghindari F821 Undefined name 'logger'
 logger = logging.getLogger(__name__)
 
 
@@ -71,9 +69,8 @@ class ContentAnalystAgent:
         self._init_gemini()
 
     def _init_gemini(self):
-        """Initialize Gemini API client."""
-        genai.configure(api_key=self.config.gemini_api_key)
-        self.model = genai.GenerativeModel(self.config.gemini_model)
+        """Initialize Gemini API client (unified google-genai SDK)."""
+        self.client = genai.Client(api_key=self.config.gemini_api_key)
 
     async def analyze(
         self, video_path: Path, audio_path: Path, metadata: dict
@@ -105,9 +102,14 @@ class ContentAnalystAgent:
                 self.circuit_breaker.record_success()
                 return result
 
-            except (google_exceptions.ResourceExhausted, google_exceptions.ServiceUnavailable):
+            except genai_errors.APIError as e:
                 self.circuit_breaker.record_failure()
-                if attempt < max_retries - 1:
+                retryable = e.code in (408, 429, 500, 502, 503, 504)
+                logger.warning(
+                    f"Analysis API error on attempt {attempt + 1} "
+                    f"(code={e.code}, retryable={retryable}): {e}"
+                )
+                if retryable and attempt < max_retries - 1:
                     delay = base_delay * (2 ** attempt)
                     await asyncio.sleep(delay)
                 else:
@@ -149,22 +151,26 @@ class ContentAnalystAgent:
             )
 
         def _analyze():
-            # Upload video to Gemini
-            video_file = genai.upload_file(str(upload_path), mime_type="video/mp4")
+            # Upload video ke Gemini Files API
+            video_file = self.client.files.upload(
+                file=str(upload_path),
+                config=types.UploadFileConfig(mime_type="video/mp4"),
+            )
 
-            # Wait for processing
-            while video_file.state.name == "PROCESSING":
+            # Tunggu sampai selesai diproses
+            while video_file.state == "PROCESSING":
                 time.sleep(2)
-                video_file = genai.get_file(video_file.name)
+                video_file = self.client.files.get(name=video_file.name)
 
-            if video_file.state.name == "FAILED":
+            if video_file.state == "FAILED":
                 raise AnalysisError("Gemini failed to process video.")
 
             prompt = self._build_prompt(metadata, sampling_interval)
 
-            response = self.model.generate_content(
-                [video_file, prompt],
-                generation_config=genai.GenerationConfig(
+            response = self.client.models.generate_content(
+                model=self.config.gemini_model,
+                contents=[video_file, prompt],
+                config=types.GenerateContentConfig(
                     temperature=0.3,
                     response_mime_type="application/json",
                 ),
@@ -172,7 +178,7 @@ class ContentAnalystAgent:
 
             # Clean up uploaded file from Gemini servers
             try:
-                genai.delete_file(video_file.name)
+                self.client.files.delete(name=video_file.name)
             except Exception as e:
                 logger.debug(f"Failed to delete uploaded file from Gemini: {e}")
 
@@ -189,6 +195,10 @@ class ContentAnalystAgent:
             response_text = await loop.run_in_executor(None, _analyze)
             return self._parse_response(response_text, metadata)
         except AnalysisError:
+            raise
+        except genai_errors.APIError:
+            # Biarkan lolos ke retry loop di analyze() supaya rate-limit/server-error
+            # ditangani dengan exponential backoff yang benar.
             raise
         except Exception as e:
             raise AnalysisError(f"Gemini API error: {str(e)}")

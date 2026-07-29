@@ -26,14 +26,14 @@ class AppConfig(BaseModel):
     gemini_frame_sampling_interval: int = Field(default=5, ge=1, le=30,
         description="Extract 1 frame every N seconds for Gemini. Higher = fewer tokens.")
 
-    gemini_model: str = Field(default="gemini-2.0-flash")
+    gemini_model: str = Field(default="gemini-3.6-flash")
     groq_whisper_model: str = Field(default="whisper-large-v3")
 
     @property
     def temp_base_path(self) -> Path:
         """Resolve temp directory based on APP_MODE."""
         if self.app_mode == AppMode.LOCAL:
-            return Path("D:/telegram-video-bot-temp")
+            return Path("/mnt/d/telegram-video-bot-temp")
         return Path("/tmp/telegram-video-bot")
 
     @property
